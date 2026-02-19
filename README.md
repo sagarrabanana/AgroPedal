@@ -3,12 +3,12 @@
 ```
 ┌─────────────────────────────────┐
 │                                 │
-│   USB                          │
-│   [===]                        │
+│   USB                           │
+│   [===]                         │
 │                                 │
 │ GND  ─────┬───── GND común para │
 │ 3.3V ─────┼───── pots y botones │
-│           │                      │
+│           │                     │
 │ GPIO 4  ──┴──── Pulsador P1     │
 │ GPIO 5  ─────── Pulsador P2     │
 │ GPIO 6  ─────── Pulsador P3     │
