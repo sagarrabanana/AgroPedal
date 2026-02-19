@@ -1,6 +1,6 @@
 # AgroPedal
 
-ESP32-S3 (Vista superior aproximada)
+```
 ┌─────────────────────────────────┐
 │                                 │
 │   USB                          │
@@ -27,3 +27,4 @@ Pots: Conecta el pin central (wiper) al GPIO, los extremos a 3.3V y GND.
 Pulsadores: Usa INPUT_PULLUP interno, así que solo necesitas conectar el otro lado a GND
 
 LEDs: SIEMPRE con resistencia limitadora (220Ω-330Ω) en serie
+```
