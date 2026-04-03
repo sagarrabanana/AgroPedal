@@ -4,61 +4,76 @@
 USBMIDI MIDI;
 
 // ==========================================================
-// CONFIGURACIÓN DE HARDWARE (NUEVOS PINES SEGUROS)
+// CONFIGURACIÓN DE HARDWARE
 // ==========================================================
-// Pulsadores (Conectar a GND y al Pin)
-const int PIN_P1 = 4;  // Retroceso / Shift A
-const int PIN_P2 = 5;  // Acción
-const int PIN_P3 = 6;  // Avance / Shift B
-
-// LEDs Indicadores (Binario)
-const int PIN_LED[4] = {38, 39, 40, 41}; 
-
-// Entradas Analógicas (Instrumentos)
-const int PIN_J1 = 9;  // Potenciómetro 1
-const int PIN_J2 = 8;  // Potenciómetro 2 (Asumido en GPIO 8)
+const int PIN_P1 = 4;
+const int PIN_P2 = 5;
+const int PIN_P3 = 6;
+const int PIN_LED[4] = {38, 39, 40, 41};
+const int PIN_J1 = 9;
+const int PIN_J2 = 8;
 
 // ==========================================================
-// CALIBRACIÓN Y AJUSTES
+// CALIBRACIÓN POR DEFECTO
+// rawMin = lectura ADC en posición mínima (voltaje alto ~3.3V)
+// rawMax = lectura ADC en posición máxima (voltaje bajo ~0.97V)
+// El mapeo es invertido: rawMin→MIDI 0, rawMax→MIDI 127
+// rawMax puede ajustarse en tiempo real si el pot no llega al extremo físico.
 // ==========================================================
-// Calibración J1 (Basada en tus tests: 3.3V=Min, 0.97V=Max)
-// Invertido: Valor RAW alto = MIDI 0. Valor RAW bajo = MIDI 127.
-const int J1_RAW_MIN_VOLT = 4050; // Cuando el pot está al mínimo (3.3V)
-const int J1_RAW_MAX_VOLT = 1150; // Cuando el pot está al máximo (0.97V)
+const int J1_RAW_MIN_DEFAULT = 4050;
+const int J1_RAW_MAX_DEFAULT = 1150;
+const int J2_RAW_MIN_DEFAULT = 4050;
+const int J2_RAW_MAX_DEFAULT = 1150;
 
-// Calibración J2 (Asumimos la misma si usas el mismo circuito)
-const int J2_RAW_MIN_VOLT = 4050; 
-const int J2_RAW_MAX_VOLT = 1150;
+// ==========================================================
+// TIEMPOS Y AJUSTES
+// ==========================================================
+const unsigned long DEBOUNCE_TIME   = 40;
+const unsigned long DOUBLE_TAP_TIME = 350;
+const float         EMA_ALPHA       = 0.15;
 
-// Tiempos
-const unsigned long DEBOUNCE_TIME = 40;    // Filtro anti-rebote botones
-const unsigned long DOUBLE_TAP_TIME = 350; // Tiempo para hacer doble click
-const float EMA_ALPHA = 0.15;              // Suavizado pots (0.1 = suave, 0.5 = rápido)
-
-// Identidad USB
+// ==========================================================
+// IDENTIDAD USB
+// ==========================================================
 const char* NOMBRE_DISPOSITIVO = "AgroPedal";
-const char* FABRICANTE = "Sagarrabanana";
+const char* FABRICANTE         = "Sagarrabanana";
 
 // ==========================================================
-// VARIABLES GLOBALES
+// CONFIGURACIÓN MIDI
 // ==========================================================
-int banco_actual = 0; // 0 a 15
+const int MIDI_CHANNEL = 1;
+const int NUM_BANCOS   = 16;
+const int NUM_BOTONES  = 3;
 
-// CLASE PARA GESTIÓN DE BOTONES (Con doble click y hold)
+// Canal neutro: CCs activos cuando no hay ningún entorno activado
+const int POT1_CC_NEUTRO = 1;
+const int POT2_CC_NEUTRO = 2;
+
+// CCs de los pots por entorno
+// índice_entorno = banco * NUM_BOTONES + índice_botón  (0..47)
+// pot1 CC = ENV_CC_BASE + índice_entorno * 2   (10..104)
+// pot2 CC = ENV_CC_BASE + índice_entorno * 2 + 1 (11..105)
+const int ENV_CC_BASE = 10;
+
+// Señal MIDI de cada botón (Note On al abrir y al cerrar el entorno)
+// nota = BTN_NOTE_BASE + índice_entorno  (36..83 → C2..B5)
+const int BTN_NOTE_BASE = 36;
+
+// ==========================================================
+// CLASE BOTÓN (debounce + doble tap)
+// ==========================================================
 class Boton {
   private:
     int pin;
-    bool estadoFisicoAnterior = HIGH; // INPUT_PULLUP: HIGH = Soltado
-    unsigned long ultimoCambio = 0;
-    
-    // Logica doble tap
-    int clicks = 0;
+    bool estadoFisicoAnterior = HIGH;
+    unsigned long ultimoCambio    = 0;
+    int           clicks           = 0;
     unsigned long tiempoPrimerClick = 0;
 
   public:
-    bool isPressed = false;      // Estado estable (para Hold/Shift)
-    bool justPressed = false;    // Flanco de bajada (un solo toque)
-    bool doubleTapDetected = false; // Evento doble click
+    bool isPressed         = false;
+    bool justPressed       = false;
+    bool doubleTapDetected = false;
 
     Boton(int p) : pin(p) {}
 
@@ -69,35 +84,27 @@ class Boton {
     void update() {
       bool lectura = digitalRead(pin);
       unsigned long ahora = millis();
-      
-      justPressed = false;
+
+      justPressed       = false;
       doubleTapDetected = false;
 
-      // 1. Debouncing Hardware
-      if (lectura != estadoFisicoAnterior) {
-        ultimoCambio = ahora;
-      }
+      if (lectura != estadoFisicoAnterior) ultimoCambio = ahora;
 
       if ((ahora - ultimoCambio) > DEBOUNCE_TIME) {
-        // El estado se ha estabilizado
-        if (lectura != !isPressed) { // Nota: !isPressed porque LOW es presionado
-          isPressed = !lectura; // Actualizamos estado lógico (True = Pulsado)
+        if (lectura != !isPressed) {
+          isPressed = !lectura;
 
-          if (isPressed) { 
-            // --- AL PULSAR ---
+          if (isPressed) {
             justPressed = true;
-            
-            // Lógica Doble Click
+
             if (clicks == 0) {
               clicks = 1;
               tiempoPrimerClick = ahora;
             } else {
-              // Si ya teníamos un click y pulsamos otra vez...
               if (ahora - tiempoPrimerClick <= DOUBLE_TAP_TIME) {
                 doubleTapDetected = true;
-                clicks = 0; // Reiniciar
+                clicks = 0;
               } else {
-                // Pasó demasiado tiempo, esto cuenta como un nuevo primer click
                 clicks = 1;
                 tiempoPrimerClick = ahora;
               }
@@ -105,97 +112,159 @@ class Boton {
           }
         }
       }
-      
-      // Reset de doble click por tiempo expirado
-      if (clicks == 1 && (ahora - tiempoPrimerClick > DOUBLE_TAP_TIME)) {
-        clicks = 0;
-      }
-      
+
+      if (clicks == 1 && (ahora - tiempoPrimerClick > DOUBLE_TAP_TIME)) clicks = 0;
+
       estadoFisicoAnterior = lectura;
     }
 };
 
-// CLASE PARA POTENCIÓMETROS
+// ==========================================================
+// CLASE POTENCIÓMETRO
+// rawMax es mutable: puede recalibrarse en tiempo real.
+// ==========================================================
 class Potenciometro {
   private:
-    int pin;
-    float emaValue = 0;
-    int lastMidiValue = -1;
-    int ccBase;
-    int rawMin, rawMax;
+    int   pin;
+    float emaValue     = 0;
+    int   lastMidiValue = -1;
+    int   rawMin;
+    int   rawMax;
 
   public:
-    Potenciometro(int p, int cc, int minR, int maxR) 
-      : pin(p), ccBase(cc), rawMin(minR), rawMax(maxR) {}
+    Potenciometro(int p, int minR, int maxR)
+      : pin(p), rawMin(minR), rawMax(maxR) {}
 
     void begin() {
       pinMode(pin, INPUT);
       emaValue = analogRead(pin);
     }
 
-    void update(int modificador) {
-      int raw = analogRead(pin);
-      
-      // Filtro Suavizado
-      emaValue = (EMA_ALPHA * raw) + ((1.0 - EMA_ALPHA) * emaValue);
-      
-      // Mapeo (Gestiona la inversión automáticamente según rawMin/rawMax)
-      int midiVal = map((int)emaValue, rawMin, rawMax, 0, 127);
-      midiVal = constrain(midiVal, 0, 127); // Limites de seguridad
+    // Captura la lectura EMA actual como nuevo rawMax (calibración de máximo)
+    void calibrarMax() {
+      rawMax = (int)emaValue;
+    }
 
-      // Enviar solo si cambia
+    // Fuerza reenvío del valor actual en el próximo update
+    void resetEnvio() {
+      lastMidiValue = -1;
+    }
+
+    void update(int cc) {
+      int raw = analogRead(pin);
+      emaValue = (EMA_ALPHA * raw) + ((1.0 - EMA_ALPHA) * emaValue);
+
+      int midiVal = map((int)emaValue, rawMin, rawMax, 0, 127);
+      midiVal = constrain(midiVal, 0, 127);
+
       if (midiVal != lastMidiValue) {
         lastMidiValue = midiVal;
-        
-        // Cálculo CC: Base + (Banco * 5) + Modificador
-        // Ejemplo J1: Base 10 + (Banco 1 * 5) + Shift 1 = CC 16
-        int finalCC = ccBase + (banco_actual * 5) + modificador;
-        if(finalCC > 127) finalCC = 127;
-
-        MIDI.controlChange(finalCC, midiVal, 1);
+        MIDI.controlChange(cc, midiVal, MIDI_CHANNEL);
       }
     }
 };
 
-// --- INSTANCIAS ---
+// ==========================================================
+// INSTANCIAS
+// ==========================================================
 Boton btn1(PIN_P1);
 Boton btn2(PIN_P2);
 Boton btn3(PIN_P3);
 
-// J1 empieza en CC 10. J2 empieza en CC 20 (para dejar espacio a los modificadores)
-// Nota: Banco * 5 significa que cada banco ocupa 5 CCs.
-// Banco 0: J1 usa CC 10,11,12. J2 usa CC 20,21,22.
-// Banco 1: J1 usa CC 15,16,17. J2 usa CC 25,26,27. 
-// (Asegurate de que no se solapen si J2 estuviera muy cerca de J1, aqui hay margen).
-Potenciometro pot1(PIN_J1, 10, J1_RAW_MIN_VOLT, J1_RAW_MAX_VOLT);
-Potenciometro pot2(PIN_J2, 20, J2_RAW_MIN_VOLT, J2_RAW_MAX_VOLT);
+Potenciometro pot1(PIN_J1, J1_RAW_MIN_DEFAULT, J1_RAW_MAX_DEFAULT);
+Potenciometro pot2(PIN_J2, J2_RAW_MIN_DEFAULT, J2_RAW_MAX_DEFAULT);
 
-// --- FUNCIONES AUXILIARES ---
+// ==========================================================
+// ESTADO GLOBAL
+// ==========================================================
+int banco_actual   = 0;   // 0..15
+int entorno_activo = -1;  // -1 = neutro | >=0 = índice de entorno activo
+
+// ==========================================================
+// FUNCIONES AUXILIARES — LEDs
+// ==========================================================
+
 void actualizarLeds() {
   for (int i = 0; i < 4; i++) {
-    // Extraer bit: (banco >> i) & 1
-    int estado = (banco_actual >> i) & 1;
-    digitalWrite(PIN_LED[i], estado);
+    digitalWrite(PIN_LED[i], (banco_actual >> i) & 1);
   }
 }
 
 void animacionArranque() {
-  // Efecto visual rápido para confirmar encendido
-  for(int i = 0; i < 4; i++) { digitalWrite(PIN_LED[i], HIGH); delay(80); digitalWrite(PIN_LED[i], LOW); }
-  for(int i = 2; i >= 0; i--) { digitalWrite(PIN_LED[i], HIGH); delay(80); digitalWrite(PIN_LED[i], LOW); }
-  
-  // Parpadeo final todos juntos
-  for(int i = 0; i < 4; i++) digitalWrite(PIN_LED[i], HIGH);
+  for (int i = 0; i < 4; i++) { digitalWrite(PIN_LED[i], HIGH); delay(80); digitalWrite(PIN_LED[i], LOW); }
+  for (int i = 2; i >= 0; i--) { digitalWrite(PIN_LED[i], HIGH); delay(80); digitalWrite(PIN_LED[i], LOW); }
+  for (int i = 0; i < 4; i++) digitalWrite(PIN_LED[i], HIGH);
   delay(200);
-  for(int i = 0; i < 4; i++) digitalWrite(PIN_LED[i], LOW);
+  for (int i = 0; i < 4; i++) digitalWrite(PIN_LED[i], LOW);
   delay(100);
+}
+
+// Tres destellos rápidos de todos los LEDs → confirmación de calibración
+void animacionCalibracion() {
+  for (int r = 0; r < 3; r++) {
+    for (int i = 0; i < 4; i++) digitalWrite(PIN_LED[i], HIGH);
+    delay(60);
+    for (int i = 0; i < 4; i++) digitalWrite(PIN_LED[i], LOW);
+    delay(60);
+  }
+  actualizarLeds(); // Restaurar estado del banco
+}
+
+// ==========================================================
+// FUNCIONES AUXILIARES — MIDI / ENTORNOS
+// ==========================================================
+
+int calcularEntorno(int boton_index) {
+  return banco_actual * NUM_BOTONES + boton_index;
+}
+
+void getCCsPots(int &cc1, int &cc2) {
+  if (entorno_activo < 0) {
+    cc1 = POT1_CC_NEUTRO;
+    cc2 = POT2_CC_NEUTRO;
+  } else {
+    cc1 = ENV_CC_BASE + entorno_activo * 2;
+    cc2 = ENV_CC_BASE + entorno_activo * 2 + 1;
+  }
+}
+
+// Envía la señal MIDI (apertura o cierre) asociada a un índice de entorno
+void enviarSeñalEntorno(int idx) {
+  int nota = BTN_NOTE_BASE + idx;
+  MIDI.noteOn(nota,  127, MIDI_CHANNEL);
+  MIDI.noteOff(nota, 0,   MIDI_CHANNEL);
+}
+
+// Gestiona el toggle de entorno al pulsar un botón:
+//  - Si el entorno pulsado ya está activo → lo cierra (señal de cierre → neutro)
+//  - Si hay otro entorno activo → cierra el anterior (señal cierre) + abre el nuevo (señal apertura)
+//  - Si no hay ninguno activo → abre el nuevo (señal apertura)
+void toggleEntorno(int boton_index) {
+  int idx = calcularEntorno(boton_index);
+
+  if (entorno_activo == idx) {
+    // Cerrar el entorno activo
+    enviarSeñalEntorno(idx);
+    entorno_activo = -1;
+
+  } else {
+    // Si había otro entorno abierto, cerrarlo primero
+    if (entorno_activo >= 0) {
+      enviarSeñalEntorno(entorno_activo);
+    }
+    // Abrir el nuevo entorno
+    enviarSeñalEntorno(idx);
+    entorno_activo = idx;
+  }
+
+  pot1.resetEnvio();
+  pot2.resetEnvio();
 }
 
 // ==========================================================
 // SETUP
 // ==========================================================
 void setup() {
-  // Config USB
   USB.productName(NOMBRE_DISPOSITIVO);
   USB.manufacturerName(FABRICANTE);
   USB.VID(0x303A);
@@ -203,19 +272,17 @@ void setup() {
   USB.begin();
   MIDI.begin();
 
-  // Config Pines
   btn1.begin();
   btn2.begin();
   btn3.begin();
   pot1.begin();
   pot2.begin();
-  
-  for(int i=0; i<4; i++) {
+
+  for (int i = 0; i < 4; i++) {
     pinMode(PIN_LED[i], OUTPUT);
     digitalWrite(PIN_LED[i], LOW);
   }
 
-  // Animación y estado inicial
   animacionArranque();
   actualizarLeds();
 }
@@ -224,53 +291,61 @@ void setup() {
 // LOOP PRINCIPAL
 // ==========================================================
 void loop() {
-  // 1. Leer Botones
+  // 1. Leer botones
   btn1.update();
   btn2.update();
   btn3.update();
 
-  // 2. Gestión de Bancos (Doble Click)
+  // 2. Cambio de banco (doble tap P1 ← | P3 →)
+  //    Cambia de banco y resetea al canal neutro.
   bool bancoCambio = false;
-  
-  if (btn3.doubleTapDetected) {
-    banco_actual++;
-    if (banco_actual > 15) banco_actual = 0;
-    bancoCambio = true;
-  }
-  
+
   if (btn1.doubleTapDetected) {
-    banco_actual--;
-    if (banco_actual < 0) banco_actual = 15;
+    banco_actual = (banco_actual - 1 + NUM_BANCOS) % NUM_BANCOS;
+    entorno_activo = -1;
+    pot1.resetEnvio();
+    pot2.resetEnvio();
     bancoCambio = true;
   }
-  
+  if (btn3.doubleTapDetected) {
+    banco_actual = (banco_actual + 1) % NUM_BANCOS;
+    entorno_activo = -1;
+    pot1.resetEnvio();
+    pot2.resetEnvio();
+    bancoCambio = true;
+  }
   if (bancoCambio) actualizarLeds();
 
-  // 3. Determinar Modificador (Shift)
-  // P1 pulsado = Shift 1 | P3 pulsado = Shift 2
-  int modificador = 0;
-  if (btn1.isPressed) modificador = 1;
-  else if (btn3.isPressed) modificador = 2;
+  // 3. Calibración de máximo de potenciómetros (combinaciones con P2)
+  //    P1 mantenido + P2 pulsado → calibra máximo de pot1
+  //    P3 mantenido + P2 pulsado → calibra máximo de pot2
+  //    Si se dispara la calibración, se bloquea el toggle de entorno de P2.
+  bool calibracionRealizada = false;
 
-  // 4. Leer Pots y Enviar MIDI
-  pot1.update(modificador);
-  
-  // Descomenta la siguiente linea cuando conectes J2
-  // pot2.update(modificador); 
-
-  // 5. Botón Acción P2
-  // Envía un CC momentáneo (127 al pulsar, 0 al soltar)
-  // CC Base 30 + (Banco*5) + Modificador
-  static bool p2_lastState = false;
-  if (btn2.isPressed != p2_lastState) {
-    p2_lastState = btn2.isPressed;
-    
-    int p2_CC = 30 + (banco_actual * 5) + modificador;
-    int velocity = btn2.isPressed ? 127 : 0;
-    
-    MIDI.controlChange(p2_CC, velocity, 1);
+  if (btn1.isPressed && btn2.justPressed && !btn2.doubleTapDetected) {
+    pot1.calibrarMax();
+    pot1.resetEnvio();
+    animacionCalibracion();
+    calibracionRealizada = true;
+  } else if (btn3.isPressed && btn2.justPressed && !btn2.doubleTapDetected) {
+    pot2.calibrarMax();
+    pot2.resetEnvio();
+    animacionCalibracion();
+    calibracionRealizada = true;
   }
 
-  // Pequeña pausa para evitar saturar la CPU
+  // 4. Toggle de entorno (pulsación simple, sin doble tap ni calibración)
+  if (!calibracionRealizada) {
+    if (btn1.justPressed && !btn1.doubleTapDetected) toggleEntorno(0);
+    if (btn2.justPressed && !btn2.doubleTapDetected) toggleEntorno(1);
+    if (btn3.justPressed && !btn3.doubleTapDetected) toggleEntorno(2);
+  }
+
+  // 5. Actualizar pots con el CC del canal activo (neutro o entorno)
+  int cc1, cc2;
+  getCCsPots(cc1, cc2);
+  pot1.update(cc1);
+  pot2.update(cc2);
+
   delay(2);
 }
