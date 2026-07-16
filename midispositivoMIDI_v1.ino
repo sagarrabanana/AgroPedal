@@ -15,6 +15,7 @@
 // --- AJUSTES ---
 #define PAD_THRESHOLD 500    
 #define MAX_BANKS     4
+const byte MIDI_CHANNEL = 1; // Canal MIDI de funcionamiento (Valores válidos: 1 a 16)
 
 // Configuración de Color Base (Naranja Cálido Oscuro)
 // Ajusta esto para el brillo en reposo
@@ -217,7 +218,11 @@ byte getNoteNumber(int padIndex) {
 }
 
 void sendMIDI(byte command, byte note, byte velocity) {
-  midiEventPacket_t event = {0x09, command, note, velocity};
+  // Ajustamos el comando MIDI para aplicar el canal seleccionado.
+  // Se extrae la parte del comando (0x90 o 0x80) y se le añade el canal de 0 a 15.
+  byte channelCommand = (command & 0xF0) | ((MIDI_CHANNEL - 1) & 0x0F);
+  
+  midiEventPacket_t event = {0x09, channelCommand, note, velocity};
   if (command == 0x80) event.header = 0x08;
   MidiUSB.sendMIDI(event);
 }
