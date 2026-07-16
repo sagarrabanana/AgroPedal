@@ -29,7 +29,7 @@ const float EMA_ALPHA = 0.15;
 const char* NOMBRE_DISPOSITIVO = "AgroPedal";
 const char* FABRICANTE         = "Sagarrabanana";
 
-const int MIDI_CH    = 1;
+const int MIDI_CH    = 2;
 const int NUM_BANCOS = 16;
 
 // ==========================================================
