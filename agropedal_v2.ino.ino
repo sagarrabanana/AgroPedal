@@ -9,7 +9,7 @@ USBMIDI MIDI;
 const int PIN_P1 = 4;
 const int PIN_P2 = 5;
 const int PIN_P3 = 6;
-const int PIN_LED[4] = {38, 39, 40, 41};
+const int PIN_LED[4] = {41, 40, 39, 38};
 const int PIN_J1 = 9;
 const int PIN_J2 = 8;
 
@@ -102,7 +102,7 @@ class Boton {
 };
 
 // ==========================================================
-// CLASE POTENCIÓMETRO
+// CLASE POTENCIÓMETRO (CON FILTRADO DE RUIDO POR HISTÉRESIS)
 // ==========================================================
 class Potenciometro {
   private:
@@ -111,6 +111,7 @@ class Potenciometro {
     int lastMidiValue = -1;
     int ccBase;
     int rawMin, rawMax;
+    float lastEmaValue = 0; // Almacena el valor analógico de la última transmisión MIDI
 
   public:
     Potenciometro(int p, int cc, int minR, int maxR)
@@ -119,6 +120,7 @@ class Potenciometro {
     void begin() {
       pinMode(pin, INPUT);
       emaValue = analogRead(pin);
+      lastEmaValue = emaValue;
     }
 
     void update(int banco) {
@@ -128,10 +130,22 @@ class Potenciometro {
       int midiVal = map((int)emaValue, rawMin, rawMax, 0, 127);
       midiVal = constrain(midiVal, 0, 127);
 
-      if (midiVal != lastMidiValue) {
-        lastMidiValue = midiVal;
-        int finalCC = constrain(ccBase + banco, 0, 127);
-        MIDI.controlChange(finalCC, midiVal, MIDI_CH);
+      // --- FILTRADO POR HISTÉRESIS ---
+      // El valor de 15.0 funciona como umbral de tolerancia al ruido sobre la señal analógica directa.
+      // Si hay demasiado ruido aún, se puede subir ligeramente (por ejemplo, a 18.0 o 20.0).
+      float threshold = 15.0; 
+      float diff = (emaValue > lastEmaValue) ? (emaValue - lastEmaValue) : (lastEmaValue - emaValue);
+
+      // El mensaje se transmite si el cambio supera el umbral,
+      // o bien si alcanza los límites absoluto superior o inferior (para no perder el 0 ni el 127).
+      if (diff > threshold || (midiVal == 0 && lastMidiValue != 0) || (midiVal == 127 && lastMidiValue != 127)) {
+        if (midiVal != lastMidiValue) {
+          lastMidiValue = midiVal;
+          lastEmaValue = emaValue; // Se establece el nuevo punto de referencia estable
+          
+          int finalCC = constrain(ccBase + banco, 0, 127);
+          MIDI.controlChange(finalCC, midiVal, MIDI_CH);
+        }
       }
     }
 };
