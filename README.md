@@ -1,5 +1,12 @@
 # AgroPedal
 
+La pedalera-MIDI DIY oficial de LETRINA Punk & Bass, y de quien quiera replicarla.
+Con 16 bancos 3x16 pulsadores y dos poteciometros (conectados via jack stereo), para interactual en directo con tu DAW favorito de una forma mas vistosa que con un MPKmini.
+
+![agropedal_v1](https://raw.githubusercontent.com/sagarrabanana/AgroPedal/refs/heads/main/pedal.png)
+![letrina_v1](https://raw.githubusercontent.com/sagarrabanana/AgroPedal/refs/heads/main/letrina_aro.png)
+
+# Esquema
 ```
 ┌─────────────────────────────────┐
 │                                 │
